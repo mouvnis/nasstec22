@@ -25,7 +25,6 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-        cache: 'npm'
 
     - name: 📦 Install dependencies
       run: npm install
@@ -39,7 +38,6 @@ jobs:
     - name: 🔄 Sync Capacitor
       run: npx cap sync android
 
-    # ── ICONS & SPLASH via @capacitor/assets ──────────────────────────
     - name: 🎨 Install image tools
       run: |
         pip install Pillow
@@ -49,72 +47,46 @@ jobs:
       run: |
         python3 - << 'EOF'
         from PIL import Image, ImageDraw
-        import os, shutil
-
+        import os
         os.makedirs("resources", exist_ok=True)
-
-        GOLD   = (201, 168, 76)
-        BLACK  = (10, 10, 10)
-
-        # ── icon.png: 1024×1024  (logo centred on black, gold ring) ──
-        SZ = 1024
+        GOLD  = (201, 168, 76)
+        BLACK = (10, 10, 10)
         logo = Image.open("www/logo.jpg").convert("RGBA")
-
-        # Build circular mask for logo
-        mask = Image.new("L", (SZ, SZ), 0)
-        ImageDraw.Draw(mask).ellipse([0, 0, SZ-1, SZ-1], fill=255)
-
-        base = Image.new("RGBA", (SZ, SZ), (*BLACK, 255))
-        pad  = int(SZ * 0.08)
-        inner_size = SZ - 2 * pad
-        logo_resized = logo.resize((inner_size, inner_size), Image.LANCZOS)
-
-        # Paste logo centred
-        base.paste(logo_resized, (pad, pad), logo_resized if logo_resized.mode == "RGBA"
-                   else logo_resized.convert("RGBA").split()[3] if "A" in logo_resized.getbands()
-                   else Image.new("L", logo_resized.size, 255))
-
-        # Gold ring
-        draw = ImageDraw.Draw(base)
+        SZ = 1024
+        pad = int(SZ * 0.08)
+        inner = SZ - 2 * pad
+        sm = logo.resize((inner, inner), Image.LANCZOS)
+        mask = Image.new("L", (inner, inner), 0)
+        ImageDraw.Draw(mask).ellipse([0, 0, inner-1, inner-1], fill=255)
+        base = Image.new("RGB", (SZ, SZ), BLACK)
+        base.paste(sm.convert("RGB"), (pad, pad), mask)
+        out = base.convert("RGBA")
         lw = max(6, SZ // 60)
-        draw.ellipse([lw//2, lw//2, SZ-lw//2-1, SZ-lw//2-1], outline=GOLD, width=lw)
-
-        base.save("resources/icon.png")
-        print("✓ resources/icon.png")
-
-        # ── splash.png: 2732×2732  (logo centred on black bg) ──
+        ImageDraw.Draw(out).ellipse([lw//2, lw//2, SZ-lw//2-1, SZ-lw//2-1], outline=GOLD, width=lw)
+        out.save("resources/icon.png")
+        print("icon done")
         W = H = 2732
         splash = Image.new("RGB", (W, H), BLACK)
-        draw2  = ImageDraw.Draw(splash)
-
-        cx, cy = W // 2, H // 2
-
-        # Subtle radial glow
+        d = ImageDraw.Draw(splash)
+        cx, cy = W//2, H//2
         for i in range(50, 0, -1):
-            t   = i / 50
-            ac  = tuple(int(BLACK[c] + (GOLD[c] - BLACK[c]) * t * 0.20) for c in range(3))
-            rp  = int(min(W, H) * 0.42 * t)
-            draw2.ellipse([cx-rp, cy-rp, cx+rp, cy+rp], fill=ac)
-
-        # Logo circle
-        logo_r = int(min(W, H) * 0.28)
-        logo_sq = logo_r * 2
-        logo_big = logo.resize((logo_sq, logo_sq), Image.LANCZOS)
-        circ_mask = Image.new("L", (logo_sq, logo_sq), 0)
-        ImageDraw.Draw(circ_mask).ellipse([0, 0, logo_sq-1, logo_sq-1], fill=255)
-        splash.paste(logo_big.convert("RGB"), (cx - logo_r, cy - logo_r), circ_mask)
-
-        # Gold ring around logo
-        lw2 = max(8, logo_r // 20)
-        draw2.ellipse([cx-logo_r-lw2, cy-logo_r-lw2,
-                       cx+logo_r+lw2, cy+logo_r+lw2],
-                      outline=GOLD, width=lw2)
-
+            t = i/50
+            ac = tuple(int(BLACK[c]+(GOLD[c]-BLACK[c])*t*0.20) for c in range(3))
+            rp = int(min(W,H)*0.42*t)
+            d.ellipse([cx-rp,cy-rp,cx+rp,cy+rp], fill=ac)
+        lr = int(min(W,H)*0.28)
+        lsq = lr*2
+        big = logo.resize((lsq,lsq), Image.LANCZOS)
+        cm = Image.new("L",(lsq,lsq),0)
+        ImageDraw.Draw(cm).ellipse([0,0,lsq-1,lsq-1],fill=255)
+        splash.paste(big.convert("RGB"),(cx-lr,cy-lr),cm)
+        lw2 = max(8, lr//20)
+        d.ellipse([cx-lr-lw2,cy-lr-lw2,cx+lr+lw2,cy+lr+lw2],outline=GOLD,width=lw2)
         splash.save("resources/splash.png")
-        print("✓ resources/splash.png")
+        print("splash done")
         EOF
 
-    - name: 🚀 Generate all icon & splash sizes with capacitor-assets
+    - name: 🚀 Generate icons and splash
       run: |
         npx @capacitor/assets generate \
           --iconBackgroundColor '#0a0a0a' \
@@ -122,21 +94,18 @@ jobs:
           --splashBackgroundColor '#0a0a0a' \
           --splashBackgroundColorDark '#0a0a0a' \
           --assetPath resources \
-          --android \
-          --ios
+          --android
 
-    # ── PERMISSIONS ────────────────────────────────────────────────────
     - name: 🔐 Inject Android permissions
       run: |
         MANIFEST="android/app/src/main/AndroidManifest.xml"
         if ! grep -q "android.permission.CAMERA" "$MANIFEST"; then
-          sed -i 's|</manifest>|    <!-- Camera -->\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />\n    <!-- Storage (Android ≤12) -->\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />\n    <!-- Scoped media (Android 13+) -->\n    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />\n    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />\n    <uses-permission android:name="android.permission.INTERNET" />\n</manifest>|' "$MANIFEST"
-          echo "✅ Permissions injected"
+          sed -i 's|</manifest>|    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />\n    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />\n    <uses-permission android:name="android.permission.INTERNET" />\n</manifest>|' "$MANIFEST"
+          echo "Permissions injected"
         else
-          echo "ℹ️ Permissions already present"
+          echo "Already present"
         fi
 
-    # ── BUILD ──────────────────────────────────────────────────────────
     - name: 🛠️ Make gradlew executable
       run: chmod +x android/gradlew
 
@@ -151,8 +120,3 @@ jobs:
         name: nasstec-debug-apk
         path: android/app/build/outputs/apk/debug/app-debug.apk
         retention-days: 30
-
-    - name: 📋 APK Build Info
-      run: |
-        echo "✅ APK built successfully!"
-        ls -lh android/app/build/outputs/apk/debug/
