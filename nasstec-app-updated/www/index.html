@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0a0a">
+<title>نص تك — Nass Tec</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;700;800;900&family=Cinzel:wght@700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<style>
+  :root {
+    --gold: #C9A84C;
+    --gold-light: #E4C06A;
+    --gold-bright: #F5D78E;
+    --gold-dark: #9A7A32;
+    --black: #0a0a0a;
+    --b2: #111;
+    --b3: #1a1a1a;
+    --text: #F0E6C8;
+    --text2: #A89060;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--black);
+    font-family: 'Tajawal', sans-serif;
+    color: var(--text);
+  }
+
+  /* ── PARTICLES CANVAS ── */
+  #particles {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── MAIN LAYOUT ── */
+  .page {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    z-index: 1;
+    padding: 40px 28px;
+    overflow: hidden;
+  }
+
+  /* ── RADIAL GLOW BG ── */
+  .page::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 500px;
+    height: 500px;
+    background: radial-gradient(ellipse, rgba(201,168,76,.12) 0%, transparent 70%);
+    pointer-events: none;
+    animation: breathe 4s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%,100% { transform: translate(-50%,-50%) scale(1); opacity:.6; }
+    50%      { transform: translate(-50%,-50%) scale(1.15); opacity:1; }
+  }
+
+  /* ── DECORATIVE RING ── */
+  .ring-outer {
+    position: relative;
+    width: 220px;
+    height: 220px;
+    flex-shrink: 0;
+    margin-bottom: 32px;
+    animation: fadeUp .9s cubic-bezier(.22,1,.36,1) both;
+  }
+  .ring-outer::before,
+  .ring-outer::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    border: 1.5px solid rgba(201,168,76,.18);
+  }
+  .ring-outer::before { inset: -18px; animation: spinL 18s linear infinite; }
+  .ring-outer::after  { inset: -34px; animation: spinR 26s linear infinite; border-style: dashed; }
+
+  @keyframes spinL { to { transform: rotate(360deg); } }
+  @keyframes spinR { to { transform: rotate(-360deg); } }
+
+  .logo-wrap {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2.5px solid var(--gold);
+    box-shadow:
+      0 0 0 6px rgba(201,168,76,.07),
+      0 0 50px rgba(201,168,76,.35),
+      0 0 100px rgba(201,168,76,.15);
+    animation: logoPulse 3.5s ease-in-out infinite 1s;
+  }
+  @keyframes logoPulse {
+    0%,100% { box-shadow: 0 0 0 6px rgba(201,168,76,.07), 0 0 50px rgba(201,168,76,.35), 0 0 100px rgba(201,168,76,.15); }
+    50%      { box-shadow: 0 0 0 10px rgba(201,168,76,.12), 0 0 80px rgba(201,168,76,.55), 0 0 140px rgba(201,168,76,.25); }
+  }
+  .logo-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  /* ── TEXT BLOCK ── */
+  .text-block {
+    text-align: center;
+    animation: fadeUp .9s cubic-bezier(.22,1,.36,1) .18s both;
+  }
+
+  .app-name {
+    font-family: 'Tajawal', sans-serif;
+    font-size: 38px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    background: linear-gradient(135deg, var(--gold-bright) 0%, var(--gold) 50%, var(--gold-dark) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.1;
+    margin-bottom: 4px;
+  }
+
+  .app-name-en {
+    font-family: 'Cinzel', serif;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 5px;
+    color: var(--gold-dark);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  .divider {
+    width: 60px;
+    height: 1.5px;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    margin: 0 auto 14px;
+  }
+
+  .tagline {
+    font-size: 15px;
+    font-weight: 400;
+    color: var(--text2);
+    letter-spacing: .5px;
+    line-height: 1.7;
+  }
+
+  /* ── FEATURES ROW ── */
+  .features {
+    display: flex;
+    gap: 20px;
+    margin-top: 28px;
+    animation: fadeUp .9s cubic-bezier(.22,1,.36,1) .32s both;
+  }
+  .feat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    opacity: .85;
+  }
+  .feat-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: rgba(201,168,76,.08);
+    border: 1px solid rgba(201,168,76,.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: var(--gold);
+  }
+  .feat span {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text2);
+    white-space: nowrap;
+  }
+
+  /* ── CTA BUTTON ── */
+  .cta-wrap {
+    margin-top: 36px;
+    width: 100%;
+    max-width: 280px;
+    animation: fadeUp .9s cubic-bezier(.22,1,.36,1) .46s both;
+  }
+  .cta-btn {
+    width: 100%;
+    padding: 18px 24px;
+    background: linear-gradient(135deg, var(--gold-dark), var(--gold), var(--gold-light));
+    border: none;
+    border-radius: 16px;
+    color: #0a0a0a;
+    font-family: 'Tajawal', sans-serif;
+    font-size: 19px;
+    font-weight: 900;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    box-shadow: 0 6px 28px rgba(201,168,76,.4), 0 2px 8px rgba(0,0,0,.5);
+    transition: all .22s;
+    position: relative;
+    overflow: hidden;
+  }
+  .cta-btn::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -60%;
+    width: 40%;
+    height: 200%;
+    background: rgba(255,255,255,.18);
+    transform: skewX(-20deg);
+    animation: shimmer 3.5s ease-in-out infinite 1.5s;
+  }
+  @keyframes shimmer {
+    0%   { left: -60%; }
+    60%  { left: 130%; }
+    100% { left: 130%; }
+  }
+  .cta-btn:active { transform: scale(.96); box-shadow: 0 3px 14px rgba(201,168,76,.3); }
+
+  .version-tag {
+    text-align: center;
+    margin-top: 12px;
+    font-size: 11px;
+    color: rgba(201,168,76,.35);
+    letter-spacing: 1px;
+    font-weight: 600;
+  }
+
+  @keyframes fadeUp {
+    from { opacity:0; transform: translateY(22px); }
+    to   { opacity:1; transform: translateY(0); }
+  }
+
+  /* ── CORNER ORNAMENTS ── */
+  .corner {
+    position: fixed;
+    width: 50px;
+    height: 50px;
+    opacity: .25;
+    pointer-events: none;
+  }
+  .corner-tl { top:20px; right:20px; border-top: 2px solid var(--gold); border-right: 2px solid var(--gold); border-radius: 0 8px 0 0; }
+  .corner-tr { top:20px; left:20px;  border-top: 2px solid var(--gold); border-left: 2px solid var(--gold);  border-radius: 8px 0 0 0; }
+  .corner-bl { bottom:20px; right:20px; border-bottom: 2px solid var(--gold); border-right: 2px solid var(--gold); border-radius: 0 0 0 8px; }
+  .corner-br { bottom:20px; left:20px;  border-bottom: 2px solid var(--gold); border-left: 2px solid var(--gold);  border-radius: 0 0 8px 0; }
+</style>
+</head>
+<body>
+
+<canvas id="particles"></canvas>
+
+<div class="corner corner-tl"></div>
+<div class="corner corner-tr"></div>
+<div class="corner corner-bl"></div>
+<div class="corner corner-br"></div>
+
+<div class="page">
+
+  <!-- LOGO RING -->
+  <div class="ring-outer">
+    <div class="logo-wrap">
+      <img src="logo.jpg" alt="نص تك Logo">
+    </div>
+  </div>
+
+  <!-- TEXT -->
+  <div class="text-block">
+    <div class="app-name">نص تك</div>
+    <div class="app-name-en">Nass Tec</div>
+    <div class="divider"></div>
+    <div class="tagline">استخرج النصوص من أي صورة<br>بالذكاء الاصطناعي · مجاناً</div>
+  </div>
+
+  <!-- FEATURES (3 features, بدون إنترنت removed) -->
+  <div class="features">
+    <div class="feat">
+      <div class="feat-icon"><i class="fas fa-camera"></i></div>
+      <span>كاميرا ذكية</span>
+    </div>
+    <div class="feat">
+      <div class="feat-icon"><i class="fas fa-file-alt"></i></div>
+      <span>استخراج نص</span>
+    </div>
+    <div class="feat">
+      <div class="feat-icon"><i class="fas fa-volume-up"></i></div>
+      <span>قراءة صوتية</span>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div class="cta-wrap">
+    <button class="cta-btn" onclick="launch()">
+      <i class="fas fa-bolt"></i>
+      ابدأ الآن
+    </button>
+    <div class="version-tag">v1.0.0 · NassTec OCR</div>
+  </div>
+
+</div>
+
+<script src="nasstec-permissions.js"></script>
+<script src="nasstec-arabic-tts.js"></script>
+<script>
+// ── PARTICLES ──
+(function(){
+  const c = document.getElementById('particles');
+  const ctx = c.getContext('2d');
+  let W, H, pts = [];
+
+  function resize(){
+    W = c.width  = window.innerWidth;
+    H = c.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  for(let i=0;i<38;i++){
+    pts.push({
+      x: Math.random()*1200,
+      y: Math.random()*900,
+      r: Math.random()*1.5+.4,
+      vx:(Math.random()-.5)*.25,
+      vy:(Math.random()-.5)*.25,
+      a: Math.random()
+    });
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    pts.forEach(p=>{
+      p.x+=p.vx; p.y+=p.vy;
+      p.a+=.008;
+      if(p.x<0||p.x>W) p.vx*=-1;
+      if(p.y<0||p.y>H) p.vy*=-1;
+      const alpha = (.25+.2*Math.sin(p.a));
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      ctx.fillStyle = `rgba(201,168,76,${alpha})`;
+      ctx.fill();
+    });
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ── LAUNCH ──
+function launch(){
+  const btn = document.querySelector('.cta-btn');
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري التحميل...';
+  btn.style.opacity = '.75';
+  setTimeout(()=>{ window.location.href = 'app.html'; }, 800);
+}
+</script>
+</body>
+</html>

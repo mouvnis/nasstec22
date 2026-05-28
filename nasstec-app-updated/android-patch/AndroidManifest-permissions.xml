@@ -1,0 +1,27 @@
+<!--
+  ╔══════════════════════════════════════════════════════════════╗
+  ║  NassTec — Android Permission Additions                      ║
+  ║  Merge these <uses-permission> lines into                    ║
+  ║  android/app/src/main/AndroidManifest.xml                   ║
+  ║  (inside <manifest> before the <application> tag)           ║
+  ╚══════════════════════════════════════════════════════════════╝
+-->
+
+    <!-- ── CAMERA ── -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <!-- ── STORAGE / DATA (Android 12 and below) ── -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+
+    <!-- ── STORAGE / DATA (Android 13+ scoped media) ── -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!-- ── INTERNET (already present, keep it) ── -->
+    <uses-permission android:name="android.permission.INTERNET" />

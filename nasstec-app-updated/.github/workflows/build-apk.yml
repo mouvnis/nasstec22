@@ -1,0 +1,158 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: ⬇️ Checkout code
+      uses: actions/checkout@v4
+
+    - name: ☕ Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: 🟢 Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: 📦 Install dependencies
+      run: npm install
+
+    - name: 🤖 Add Android platform (if not present)
+      run: |
+        if [ ! -d "android" ]; then
+          npx cap add android
+        fi
+
+    - name: 🔄 Sync Capacitor
+      run: npx cap sync android
+
+    # ── ICONS & SPLASH via @capacitor/assets ──────────────────────────
+    - name: 🎨 Install image tools
+      run: |
+        pip install Pillow
+        npm install --save-dev @capacitor/assets
+
+    - name: 🖼️ Prepare resources folder from logo.jpg
+      run: |
+        python3 - << 'EOF'
+        from PIL import Image, ImageDraw
+        import os, shutil
+
+        os.makedirs("resources", exist_ok=True)
+
+        GOLD   = (201, 168, 76)
+        BLACK  = (10, 10, 10)
+
+        # ── icon.png: 1024×1024  (logo centred on black, gold ring) ──
+        SZ = 1024
+        logo = Image.open("www/logo.jpg").convert("RGBA")
+
+        # Build circular mask for logo
+        mask = Image.new("L", (SZ, SZ), 0)
+        ImageDraw.Draw(mask).ellipse([0, 0, SZ-1, SZ-1], fill=255)
+
+        base = Image.new("RGBA", (SZ, SZ), (*BLACK, 255))
+        pad  = int(SZ * 0.08)
+        inner_size = SZ - 2 * pad
+        logo_resized = logo.resize((inner_size, inner_size), Image.LANCZOS)
+
+        # Paste logo centred
+        base.paste(logo_resized, (pad, pad), logo_resized if logo_resized.mode == "RGBA"
+                   else logo_resized.convert("RGBA").split()[3] if "A" in logo_resized.getbands()
+                   else Image.new("L", logo_resized.size, 255))
+
+        # Gold ring
+        draw = ImageDraw.Draw(base)
+        lw = max(6, SZ // 60)
+        draw.ellipse([lw//2, lw//2, SZ-lw//2-1, SZ-lw//2-1], outline=GOLD, width=lw)
+
+        base.save("resources/icon.png")
+        print("✓ resources/icon.png")
+
+        # ── splash.png: 2732×2732  (logo centred on black bg) ──
+        W = H = 2732
+        splash = Image.new("RGB", (W, H), BLACK)
+        draw2  = ImageDraw.Draw(splash)
+
+        cx, cy = W // 2, H // 2
+
+        # Subtle radial glow
+        for i in range(50, 0, -1):
+            t   = i / 50
+            ac  = tuple(int(BLACK[c] + (GOLD[c] - BLACK[c]) * t * 0.20) for c in range(3))
+            rp  = int(min(W, H) * 0.42 * t)
+            draw2.ellipse([cx-rp, cy-rp, cx+rp, cy+rp], fill=ac)
+
+        # Logo circle
+        logo_r = int(min(W, H) * 0.28)
+        logo_sq = logo_r * 2
+        logo_big = logo.resize((logo_sq, logo_sq), Image.LANCZOS)
+        circ_mask = Image.new("L", (logo_sq, logo_sq), 0)
+        ImageDraw.Draw(circ_mask).ellipse([0, 0, logo_sq-1, logo_sq-1], fill=255)
+        splash.paste(logo_big.convert("RGB"), (cx - logo_r, cy - logo_r), circ_mask)
+
+        # Gold ring around logo
+        lw2 = max(8, logo_r // 20)
+        draw2.ellipse([cx-logo_r-lw2, cy-logo_r-lw2,
+                       cx+logo_r+lw2, cy+logo_r+lw2],
+                      outline=GOLD, width=lw2)
+
+        splash.save("resources/splash.png")
+        print("✓ resources/splash.png")
+        EOF
+
+    - name: 🚀 Generate all icon & splash sizes with capacitor-assets
+      run: |
+        npx @capacitor/assets generate \
+          --iconBackgroundColor '#0a0a0a' \
+          --iconBackgroundColorDark '#0a0a0a' \
+          --splashBackgroundColor '#0a0a0a' \
+          --splashBackgroundColorDark '#0a0a0a' \
+          --assetPath resources \
+          --android \
+          --ios
+
+    # ── PERMISSIONS ────────────────────────────────────────────────────
+    - name: 🔐 Inject Android permissions
+      run: |
+        MANIFEST="android/app/src/main/AndroidManifest.xml"
+        if ! grep -q "android.permission.CAMERA" "$MANIFEST"; then
+          sed -i 's|</manifest>|    <!-- Camera -->\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />\n    <!-- Storage (Android ≤12) -->\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />\n    <!-- Scoped media (Android 13+) -->\n    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />\n    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />\n    <uses-permission android:name="android.permission.INTERNET" />\n</manifest>|' "$MANIFEST"
+          echo "✅ Permissions injected"
+        else
+          echo "ℹ️ Permissions already present"
+        fi
+
+    # ── BUILD ──────────────────────────────────────────────────────────
+    - name: 🛠️ Make gradlew executable
+      run: chmod +x android/gradlew
+
+    - name: 🏗️ Build Debug APK
+      run: |
+        cd android
+        ./gradlew assembleDebug --no-daemon
+
+    - name: 📤 Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: nasstec-debug-apk
+        path: android/app/build/outputs/apk/debug/app-debug.apk
+        retention-days: 30
+
+    - name: 📋 APK Build Info
+      run: |
+        echo "✅ APK built successfully!"
+        ls -lh android/app/build/outputs/apk/debug/
