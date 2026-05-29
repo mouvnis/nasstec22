@@ -1091,63 +1091,81 @@ function hideProg(){document.getElementById('progCard').classList.remove('show')
 // ══════════════════════════════════════════════════════════
 // TTS — Arabic-first Web Speech API
 // ══════════════════════════════════════════════════════════
+/* ── TTS: powered by NassTecTTS (native Capacitor engine) ── */
 function initTTS(){
-  if(!('speechSynthesis' in window)){
-    document.getElementById('ttsStatus').textContent='غير مدعوم في هذا المتصفح';
-    return;
-  }
-  loadVoices();
-  window.speechSynthesis.onvoiceschanged=loadVoices;
-}
-function loadVoices(){
-  const all=window.speechSynthesis.getVoices();
-  if(!all.length) return;
-  voices=all;
-  const sel=document.getElementById('ttsVoice');
-  if(!sel) return;
-  const ar=all.filter(v=>v.lang.startsWith('ar'));
-  const oth=all.filter(v=>!v.lang.startsWith('ar'));
-  sel.innerHTML='<option value="-1">تلقائي (حسب النص)</option>';
-  if(ar.length){const g=document.createElement('optgroup');g.label='🇸🇦 أصوات عربية';ar.forEach(v=>{const o=document.createElement('option');o.value=all.indexOf(v);o.textContent=v.name+' ('+v.lang+')';g.appendChild(o);});sel.appendChild(g);}
-  if(oth.length){const g=document.createElement('optgroup');g.label='🌐 لغات أخرى';oth.forEach(v=>{const o=document.createElement('option');o.value=all.indexOf(v);o.textContent=v.name+' ('+v.lang+')';g.appendChild(o);});sel.appendChild(g);}
-  if(ar.length) sel.value=all.indexOf(ar[0]);
-  document.getElementById('ttsStatus').textContent=ar.length>0?(ar.length+' صوت عربي متاح ✓'):'لا توجد أصوات عربية — يُفضل Chrome أو Safari';
+  var st = document.getElementById('ttsStatus');
+  if(st) st.textContent = 'جاري تحميل محرك الصوت...';
+  setTimeout(function(){
+    var info = (typeof NassTecTTS !== 'undefined') ? NassTecTTS.getInfo() : null;
+    if(!info){ if(st) st.textContent='خطأ: ملف TTS غير محمّل'; return; }
+    if(info.nativePluginAvailable){
+      if(st) st.textContent = '✅ محرك Android الأصلي جاهز';
+    } else if(info.webSpeechAvailable && info.arabicVoicesOnDevice.length > 0){
+      if(st) st.textContent = '✅ ' + info.arabicVoicesOnDevice.length + ' صوت عربي متاح';
+    } else {
+      if(st) st.textContent = '⚠️ جاري استخدام الصوت الافتراضي';
+    }
+    var sel = document.getElementById('ttsVoice');
+    if(sel && 'speechSynthesis' in window){
+      var all = window.speechSynthesis.getVoices();
+      var ar  = all.filter(function(v){ return v.lang.startsWith('ar'); });
+      if(ar.length){
+        sel.innerHTML = '<option value="-1">تلقائي</option>';
+        ar.forEach(function(v){
+          var o = document.createElement('option');
+          o.value = all.indexOf(v); o.textContent = v.name+' ('+v.lang+')';
+          sel.appendChild(o);
+        });
+        sel.value = all.indexOf(ar[0]);
+      }
+    }
+  }, 1500);
 }
 function getTTSText(){
-  if(!curResult) return '';
-  // Prefer main extracted text for TTS (most useful for elderly)
-  return curResult.text||'';
+  return (curResult && curResult.text) ? curResult.text : '';
 }
 function toggleTTS(){
-  if(ttsOn){pauseTTS();return;}
-  const text=getTTSText();
-  if(!text){showToast('لا يوجد نص بعد','err');return;}
+  if(ttsOn){ stopTTS(); return; }
+  var text = getTTSText();
+  if(!text){ showToast('لا يوجد نص بعد','err'); return; }
   speak(text);
 }
-function speak(text){
+async function speak(text){
+  if(!text) return;
   stopTTS();
-  if(!('speechSynthesis' in window)) return;
-  const isAr=/[\u0600-\u06FF]/.test(text);
-  const utter=new SpeechSynthesisUtterance(text);
-  utter.rate=parseFloat(document.getElementById('ttsSpd')?.value||'0.85');
-  utter.pitch=1.0;
-  const idx=parseInt(document.getElementById('ttsVoice')?.value);
-  if(!isNaN(idx)&&idx>=0&&voices[idx]){utter.voice=voices[idx];utter.lang=voices[idx].lang;}
-  else{utter.lang=isAr?'ar-SA':'en-US';const v=voices.find(v=>v.lang.startsWith(isAr?'ar':'en'));if(v)utter.voice=v;}
-  utter.onstart=()=>{ttsOn=true;setTTSUI(true);};
-  utter.onend=utter.onerror=()=>{ttsOn=false;setTTSUI(false);};
-  window.speechSynthesis.speak(utter);
+  ttsOn = true; setTTSUI(true);
+  try {
+    if(typeof NassTecTTS !== 'undefined'){
+      var rateEl = document.getElementById('ttsSpd');
+      var rate   = rateEl ? parseFloat(rateEl.value) : 0.9;
+      await NassTecTTS.speak(text, { rate: rate });
+    } else if('speechSynthesis' in window){
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = 'ar-SA'; u.rate = 0.9;
+      window.speechSynthesis.speak(u);
+      await new Promise(function(r){ u.onend = u.onerror = r; });
+    }
+  } catch(e){ console.error('[TTS]', e); }
+  ttsOn = false; setTTSUI(false);
 }
-function pauseTTS(){if('speechSynthesis' in window){window.speechSynthesis.pause();ttsOn=false;setTTSUI(false);document.getElementById('ttsLbl').textContent='استئناف';document.getElementById('ttsIco').className='fas fa-play';}}
-function stopTTS(){if('speechSynthesis' in window)window.speechSynthesis.cancel();ttsOn=false;setTTSUI(false);}
+function stopTTS(){
+  if(typeof NassTecTTS !== 'undefined') NassTecTTS.stop();
+  ttsOn = false; setTTSUI(false);
+}
 function setTTSUI(on){
-  const b=document.getElementById('ttsBtn');const i=document.getElementById('ttsIco');const l=document.getElementById('ttsLbl');
-  if(!b)return;
+  var b=document.getElementById('ttsBtn');
+  var i=document.getElementById('ttsIco');
+  var l=document.getElementById('ttsLbl');
+  if(!b) return;
   b.classList.toggle('playing',on);
-  i.className=on?'fas fa-pause':'fas fa-play';
-  l.textContent=on?'إيقاف مؤقت':'استمع للنص';
+  i.className = on ? 'fas fa-pause' : 'fas fa-play';
+  l.textContent = on ? 'إيقاف' : 'استمع للنص';
 }
-function speakEl(id){const el=document.getElementById(id);if(!el)return;speak(el.textContent);}
+function speakEl(id){
+  var el = document.getElementById(id);
+  if(el) speak(el.textContent);
+}
+
 
 // ══════════════════════════════════════════════════════════
 // CAMERA — Smart document detection + auto-snap
