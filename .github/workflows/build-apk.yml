@@ -26,6 +26,7 @@ jobs:
       with:
         node-version: '20'
 
+    # ── INSTALL (includes @capacitor-community/text-to-speech) ──
     - name: 📦 Install dependencies
       run: npm install
 
@@ -35,15 +36,17 @@ jobs:
           npx cap add android
         fi
 
-    - name: 🔄 Sync Capacitor
+    # Sync AFTER install so the native TTS plugin is included in Android build
+    - name: 🔄 Sync Capacitor (registers TTS plugin into Android)
       run: npx cap sync android
 
+    # ── ICONS & SPLASH ──────────────────────────────────────────
     - name: 🎨 Install image tools
       run: |
-        pip install Pillow
+        pip install Pillow --break-system-packages
         npm install --save-dev @capacitor/assets
 
-    - name: 🖼️ Prepare resources folder from logo.jpg
+    - name: 🖼️ Generate resources from logo
       run: |
         python3 - << 'EOF'
         from PIL import Image, ImageDraw
@@ -51,42 +54,45 @@ jobs:
         os.makedirs("resources", exist_ok=True)
         GOLD  = (201, 168, 76)
         BLACK = (10, 10, 10)
-        logo = Image.open("www/logo.jpg").convert("RGBA")
-        SZ = 1024
-        pad = int(SZ * 0.08)
+        logo  = Image.open("www/logo.jpg").convert("RGBA")
+
+        # icon.png 1024x1024
+        SZ    = 1024
+        pad   = int(SZ * 0.08)
         inner = SZ - 2 * pad
-        sm = logo.resize((inner, inner), Image.LANCZOS)
-        mask = Image.new("L", (inner, inner), 0)
+        sm    = logo.resize((inner, inner), Image.LANCZOS)
+        mask  = Image.new("L", (inner, inner), 0)
         ImageDraw.Draw(mask).ellipse([0, 0, inner-1, inner-1], fill=255)
-        base = Image.new("RGB", (SZ, SZ), BLACK)
+        base  = Image.new("RGB", (SZ, SZ), BLACK)
         base.paste(sm.convert("RGB"), (pad, pad), mask)
-        out = base.convert("RGBA")
-        lw = max(6, SZ // 60)
+        out   = base.convert("RGBA")
+        lw    = max(6, SZ // 60)
         ImageDraw.Draw(out).ellipse([lw//2, lw//2, SZ-lw//2-1, SZ-lw//2-1], outline=GOLD, width=lw)
         out.save("resources/icon.png")
-        print("icon done")
+
+        # splash.png 2732x2732
         W = H = 2732
-        splash = Image.new("RGB", (W, H), BLACK)
-        d = ImageDraw.Draw(splash)
+        spl   = Image.new("RGB", (W, H), BLACK)
+        d     = ImageDraw.Draw(spl)
         cx, cy = W//2, H//2
         for i in range(50, 0, -1):
-            t = i/50
+            t  = i / 50
             ac = tuple(int(BLACK[c]+(GOLD[c]-BLACK[c])*t*0.20) for c in range(3))
             rp = int(min(W,H)*0.42*t)
             d.ellipse([cx-rp,cy-rp,cx+rp,cy+rp], fill=ac)
-        lr = int(min(W,H)*0.28)
-        lsq = lr*2
-        big = logo.resize((lsq,lsq), Image.LANCZOS)
-        cm = Image.new("L",(lsq,lsq),0)
-        ImageDraw.Draw(cm).ellipse([0,0,lsq-1,lsq-1],fill=255)
-        splash.paste(big.convert("RGB"),(cx-lr,cy-lr),cm)
-        lw2 = max(8, lr//20)
-        d.ellipse([cx-lr-lw2,cy-lr-lw2,cx+lr+lw2,cy+lr+lw2],outline=GOLD,width=lw2)
-        splash.save("resources/splash.png")
-        print("splash done")
+        lr    = int(min(W,H)*0.28)
+        lsq   = lr * 2
+        big   = logo.resize((lsq, lsq), Image.LANCZOS)
+        cm    = Image.new("L", (lsq, lsq), 0)
+        ImageDraw.Draw(cm).ellipse([0,0,lsq-1,lsq-1], fill=255)
+        spl.paste(big.convert("RGB"), (cx-lr, cy-lr), cm)
+        lw2   = max(8, lr//20)
+        d.ellipse([cx-lr-lw2,cy-lr-lw2,cx+lr+lw2,cy+lr+lw2], outline=GOLD, width=lw2)
+        spl.save("resources/splash.png")
+        print("Resources generated")
         EOF
 
-    - name: 🚀 Generate icons and splash
+    - name: 🚀 Generate all icon & splash sizes
       run: |
         npx @capacitor/assets generate \
           --iconBackgroundColor '#0a0a0a' \
@@ -96,16 +102,61 @@ jobs:
           --assetPath resources \
           --android
 
-    - name: 🔐 Inject Android permissions
+    # ── ANDROID MANIFEST ────────────────────────────────────────
+    - name: 🔐 Patch AndroidManifest (permissions + TTS queries)
       run: |
-        MANIFEST="android/app/src/main/AndroidManifest.xml"
-        if ! grep -q "android.permission.CAMERA" "$MANIFEST"; then
-          sed -i 's|</manifest>|    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />\n    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />\n    <uses-permission android:name="android.permission.INTERNET" />\n</manifest>|' "$MANIFEST"
-          echo "Permissions injected"
-        else
-          echo "Already present"
-        fi
+        python3 - << 'EOF'
+        import re
 
+        path = "android/app/src/main/AndroidManifest.xml"
+        with open(path, "r") as f:
+            xml = f.read()
+
+        # 1. Add permissions before </manifest>
+        perms = """
+    <!-- Camera -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Storage -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- Internet -->
+    <uses-permission android:name="android.permission.INTERNET" />"""
+
+        if "android.permission.CAMERA" not in xml:
+            xml = xml.replace("</manifest>", perms + "\n</manifest>")
+            print("✅ Permissions injected")
+        else:
+            print("ℹ️  Permissions already present")
+
+        # 2. Add <queries> block for TTS (required Android 11+ / API 30+)
+        #    Without this block the TTS plugin cannot find the TTS service
+        queries_block = """
+    <!-- Required for TextToSpeech on Android 11+ -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>"""
+
+        if "TTS_SERVICE" not in xml:
+            # Insert after <manifest ...> opening tag
+            xml = re.sub(
+                r'(<manifest[^>]*>)',
+                r'\1' + queries_block,
+                xml, count=1
+            )
+            print("✅ TTS queries block injected")
+        else:
+            print("ℹ️  TTS queries already present")
+
+        with open(path, "w") as f:
+            f.write(xml)
+        EOF
+
+    # ── BUILD ────────────────────────────────────────────────────
     - name: 🛠️ Make gradlew executable
       run: chmod +x android/gradlew
 
@@ -120,3 +171,6 @@ jobs:
         name: nasstec-debug-apk
         path: android/app/build/outputs/apk/debug/app-debug.apk
         retention-days: 30
+
+    - name: ✅ Done
+      run: ls -lh android/app/build/outputs/apk/debug/
