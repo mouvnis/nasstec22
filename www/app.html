@@ -279,7 +279,45 @@ input[type=file]{display:none;}
     <div class="spl-name">نص تك · Nass Tec</div>
     <div class="spl-tag">مساعدك لقراءة النصوص</div>
     <div class="spl-bar"><div class="spl-fill"></div></div>
+    <div style="
+      margin-top: 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      opacity: 0;
+      animation: fadeInPowered 1s ease forwards 1.8s;
+    ">
+      <div style="
+        width: 40px; height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(201,168,76,.4), transparent);
+        margin-bottom: 8px;
+      "></div>
+      <span style="
+        font-size: 10px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: rgba(168,144,96,.55);
+        font-weight: 400;
+      ">Powered by</span>
+      <span style="
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        background: linear-gradient(135deg, #C9A84C, #E4C06A, #9A7A32);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      ">Mouanis</span>
+    </div>
   </div>
+  <style>
+    @keyframes fadeInPowered {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
 </div>
 
 <!-- ══ HOME ══ -->
