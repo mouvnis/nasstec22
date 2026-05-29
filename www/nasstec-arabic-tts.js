@@ -1,228 +1,224 @@
 /**
- * nasstec-arabic-tts.js  v3.0
+ * nasstec-arabic-tts.js  v4.0 — NATIVE FIRST
  * ─────────────────────────────────────────────────────────────
- * Free Arabic TTS — works in Android WebView without Chrome.
+ * ROOT CAUSE OF PREVIOUS FAILURES:
+ *   Android WebView blocks Audio() cross-origin requests and
+ *   Web Speech API is unreliable in WebView (not Chrome).
+ *   The ONLY 100% reliable solution is a Capacitor native plugin
+ *   that calls Android's TextToSpeech engine directly — bypassing
+ *   WebView completely.
  *
- * Engine cascade (first success wins):
+ * Engine cascade:
  *
- *  1. Google Translate TTS  — free, no API key, online, best quality
- *     Uses the public translate_tts endpoint. Works in any WebView
- *     via a plain Audio() object. Supports Arabic natively.
+ *  1. ✅ @capacitor-community/text-to-speech  ← MAIN ENGINE
+ *     Calls android.speech.tts.TextToSpeech natively.
+ *     Works 100% offline. No internet. No Chrome. No WebView.
+ *     Every Android phone has this (Google TTS, Samsung TTS, etc.)
+ *     Arabic support: built-in via device TTS engine.
+ *     Installed via: npm install @capacitor-community/text-to-speech
  *
- *  2. Web Speech API  — uses device TTS engine (Google TTS, Samsung TTS).
- *     Fully offline if device has an Arabic TTS engine installed.
- *     Works in Android WebView ≥ 4.4 without Chrome.
+ *  2. Web Speech API — device TTS via speechSynthesis (offline fallback)
  *
- *  3. HuggingFace SILMA TTS  — free HF Inference API, online.
- *     Best open-source Arabic model (150M, bilingual AR/EN).
- *     No API key needed for occasional use.
- *
- *  4. HuggingFace SpeechT5 Arabic  — MBZUAI model, free HF API, online.
+ *  3. VoiceRSS — free Arabic TTS API (needs free API key + internet)
+ *     Get free key at: voicerss.org/api (350 req/day free)
+ *     Set: NassTecTTS.setVoiceRSSKey('YOUR_KEY')
  *
  * Usage:
  *   await NassTecTTS.speak("مرحباً بكم في نص تك");
  *   NassTecTTS.stop();
- *   NassTecTTS.getInfo();
- *   await NassTecTTS.test();
+ *   await NassTecTTS.diagnose();  ← run this to debug
  * ─────────────────────────────────────────────────────────────
  */
 
 const NassTecTTS = (() => {
 
-  let _currentAudio = null;
-  let _activeEngine  = null;
+  let _activeEngine = null;
+  let _voiceRSSKey  = '';  // optional, set via setVoiceRSSKey()
 
-  /* ════════════════════════════════════════════════════════════
-     ENGINE 1 — Google Translate TTS
-     Free, no API key, online. Works in WebView via Audio().
-     Best quality Arabic voice available for free.
-  ═════════════════════════════════════════════════════════════*/
-  async function _speakGoogleTTS(text) {
-    // Split into chunks ≤ 200 chars (Google TTS limit per request)
-    const chunks = _chunkText(text, 200);
-    try {
-      for (const chunk of chunks) {
-        const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=ar&client=tw-ob&ttsspeed=0.9`;
-        const ok = await _playAudio(url);
-        if (!ok) return false;
-      }
-      return true;
-    } catch { return false; }
+  /* ═══════════════════════════════════════════════════════════
+     ENGINE 1 — @capacitor-community/text-to-speech (NATIVE)
+     This calls Android TextToSpeech directly via Java bridge.
+     Completely bypasses WebView — always works on real devices.
+  ══════════════════════════════════════════════════════════════ */
+  function _getCapPlugin() {
+    // Capacitor auto-registers plugin under window.Capacitor.Plugins
+    return window?.Capacitor?.Plugins?.TextToSpeech ?? null;
   }
 
-  /* ════════════════════════════════════════════════════════════
-     ENGINE 2 — Web Speech API (offline if device has Arabic TTS)
-  ═════════════════════════════════════════════════════════════*/
+  async function _speakNative(text) {
+    const plugin = _getCapPlugin();
+    if (!plugin) {
+      console.warn('[TTS] Native plugin not found. Is @capacitor-community/text-to-speech installed and synced?');
+      return false;
+    }
+    try {
+      // Stop any current speech first
+      try { await plugin.stop(); } catch (_) {}
+
+      await plugin.speak({
+        text:          text,
+        lang:          'ar-SA',   // Saudi Arabic — widest device support
+        rate:          0.95,      // Slightly slower for clarity
+        pitch:         1.0,
+        volume:        1.0,
+        category:      'ambient',
+        queueStrategy: 1,         // 1 = flush queue (replace current speech)
+      });
+      return true;
+    } catch (e) {
+      console.warn('[TTS] Native plugin error:', e?.message ?? e);
+
+      // Try Egyptian Arabic if Saudi failed
+      try {
+        await plugin.speak({ text, lang: 'ar-EG', rate: 0.95, pitch: 1.0, volume: 1.0 });
+        return true;
+      } catch (_) {}
+
+      // Try generic Arabic
+      try {
+        await plugin.speak({ text, lang: 'ar', rate: 0.95, pitch: 1.0, volume: 1.0 });
+        return true;
+      } catch (_) {}
+
+      return false;
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     ENGINE 2 — Web Speech API (offline if Arabic TTS installed)
+  ══════════════════════════════════════════════════════════════ */
   let _wsVoice = null;
 
-  async function _resolveWSVoice() {
+  async function _resolveVoice() {
     if (_wsVoice) return _wsVoice;
     if (!('speechSynthesis' in window)) return null;
     return new Promise(resolve => {
       const pick = () => {
-        const all = window.speechSynthesis.getVoices();
-        if (!all.length) return null;
-        for (const lang of ['ar-SA','ar-EG','ar-AE','ar','ar-MA']) {
-          const v = all.find(v => v.lang.toLowerCase().startsWith(lang.toLowerCase()));
+        const voices = window.speechSynthesis.getVoices();
+        if (!voices.length) return null;
+        for (const lang of ['ar-SA','ar-EG','ar-AE','ar-MA','ar']) {
+          const v = voices.find(v => v.lang.toLowerCase().startsWith(lang.toLowerCase()));
           if (v) return v;
         }
-        return all.find(v => /arab/i.test(v.name)) || null;
+        return voices.find(v => /arab/i.test(v.name)) ?? null;
       };
       const v = pick();
       if (v) { _wsVoice = v; resolve(v); return; }
       if ('onvoiceschanged' in window.speechSynthesis) {
         window.speechSynthesis.onvoiceschanged = () => { _wsVoice = pick(); resolve(_wsVoice); };
       }
-      setTimeout(() => resolve(null), 3000);
+      setTimeout(() => resolve(null), 3500);
     });
   }
 
   async function _speakWebSpeech(text) {
     if (!('speechSynthesis' in window)) return false;
     try { window.speechSynthesis.cancel(); } catch (_) {}
-    const voice = await _resolveWSVoice();
+    const voice = await _resolveVoice();
     if (!voice) return false;
+
     return new Promise(resolve => {
       const utt   = new SpeechSynthesisUtterance(text);
-      utt.lang    = voice.lang || 'ar-SA';
       utt.voice   = voice;
+      utt.lang    = voice.lang || 'ar-SA';
       utt.rate    = 0.9;
       utt.pitch   = 1.0;
-      utt.volume  = 1;
-      const guard = setTimeout(() => resolve(true), text.length * 120 + 3000);
+      utt.volume  = 1.0;
+      const guard = setTimeout(() => resolve(true), text.length * 100 + 4000);
       utt.onend   = () => { clearTimeout(guard); resolve(true); };
-      utt.onerror = e  => { clearTimeout(guard); console.warn('[TTS] WebSpeech:', e.error); resolve(false); };
+      utt.onerror = e  => { clearTimeout(guard); console.warn('[TTS] WebSpeech error:', e.error); resolve(false); };
       try {
         window.speechSynthesis.speak(utt);
+        // Android WebView quirk: retry after 200ms if not speaking
         setTimeout(() => {
           if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
             try { window.speechSynthesis.speak(utt); } catch (_) {}
           }
-        }, 150);
+        }, 200);
       } catch (e) { clearTimeout(guard); resolve(false); }
     });
   }
 
-  /* ════════════════════════════════════════════════════════════
-     ENGINE 3 — HuggingFace SILMA TTS (free, online, best OSS Arabic)
-     Model: silma-ai/silma-tts  (150M bilingual AR/EN)
-  ═════════════════════════════════════════════════════════════*/
-  async function _speakSilmaTTS(text) {
-    try {
-      const resp = await fetch(
-        'https://api-inference.huggingface.co/models/silma-ai/silma-tts',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ inputs: text }),
-        }
-      );
-      if (!resp.ok) return false;
-      const blob = await resp.blob();
-      return await _playBlob(blob);
-    } catch { return false; }
-  }
+  /* ═══════════════════════════════════════════════════════════
+     ENGINE 3 — VoiceRSS (free tier, needs API key + internet)
+     Get free key: https://www.voicerss.org/api/
+     350 requests/day free. Set key via NassTecTTS.setVoiceRSSKey()
+  ══════════════════════════════════════════════════════════════ */
+  let _currentAudio = null;
 
-  /* ════════════════════════════════════════════════════════════
-     ENGINE 4 — HuggingFace SpeechT5 Arabic (MBZUAI, free)
-  ═════════════════════════════════════════════════════════════*/
-  async function _speakSpeechT5(text) {
+  async function _speakVoiceRSS(text) {
+    if (!_voiceRSSKey) return false;
     try {
-      const resp = await fetch(
-        'https://api-inference.huggingface.co/models/MBZUAI/speecht5_tts_clartts_ar',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ inputs: text }),
-        }
-      );
-      if (!resp.ok) return false;
-      const blob = await resp.blob();
-      return await _playBlob(blob);
+      const url = `https://api.voicerss.org/?key=${_voiceRSSKey}&hl=ar-sa&src=${encodeURIComponent(text)}&c=MP3&f=44khz_16bit_mono&ssml=false&b64=false&v=Laila`;
+      return await _playAudio(url);
     } catch { return false; }
-  }
-
-  /* ════════════════════════════════════════════════════════════
-     Helpers
-  ═════════════════════════════════════════════════════════════*/
-  function _chunkText(text, maxLen) {
-    const chunks = [];
-    // Split on sentence boundaries first
-    const sentences = text.split(/[.!?،؟\n]+/).filter(s => s.trim());
-    let current = '';
-    for (const s of sentences) {
-      if ((current + s).length > maxLen) {
-        if (current) chunks.push(current.trim());
-        current = s;
-      } else {
-        current += (current ? ' ' : '') + s;
-      }
-    }
-    if (current.trim()) chunks.push(current.trim());
-    // If still too long, split by char count
-    const result = [];
-    for (const c of chunks) {
-      if (c.length <= maxLen) { result.push(c); continue; }
-      for (let i = 0; i < c.length; i += maxLen) result.push(c.slice(i, i + maxLen));
-    }
-    return result.length ? result : [text.slice(0, maxLen)];
   }
 
   function _playAudio(url) {
     return new Promise(resolve => {
-      if (_currentAudio) { try { _currentAudio.pause(); } catch(_){} }
-      const audio = new Audio(url);
-      _currentAudio = audio;
-      audio.onended  = () => resolve(true);
-      audio.onerror  = () => resolve(false);
-      audio.play().catch(() => resolve(false));
+      if (_currentAudio) { try { _currentAudio.pause(); } catch (_) {} }
+      const audio      = new Audio(url);
+      _currentAudio    = audio;
+      audio.onended    = () => resolve(true);
+      audio.onerror    = () => resolve(false);
+      const timeout    = setTimeout(() => resolve(false), 12000);
+      audio.onended    = () => { clearTimeout(timeout); resolve(true); };
+      audio.onerror    = () => { clearTimeout(timeout); resolve(false); };
+      audio.play().catch(() => { clearTimeout(timeout); resolve(false); });
     });
   }
 
-  function _playBlob(blob) {
-    const url = URL.createObjectURL(blob);
-    return new Promise(resolve => {
-      if (_currentAudio) { try { _currentAudio.pause(); } catch(_){} }
-      const audio = new Audio(url);
-      _currentAudio = audio;
-      audio.onended  = () => { URL.revokeObjectURL(url); resolve(true); };
-      audio.onerror  = () => { URL.revokeObjectURL(url); resolve(false); };
-      audio.play().catch(() => { URL.revokeObjectURL(url); resolve(false); });
-    });
-  }
-
-  /* ════════════════════════════════════════════════════════════
-     Public API
-  ═════════════════════════════════════════════════════════════*/
+  /* ═══════════════════════════════════════════════════════════
+     PUBLIC API
+  ══════════════════════════════════════════════════════════════ */
   async function speak(text) {
     if (!text?.trim()) return;
+    const t = text.trim();
 
-    // Engine 1 — Google Translate TTS (online, best quality)
-    if (await _speakGoogleTTS(text)) { _activeEngine = 'GoogleTranslateTTS'; return; }
+    // ENGINE 1: Native Capacitor plugin (best, works 100% on device)
+    if (await _speakNative(t)) {
+      _activeEngine = 'CapacitorTTS_Native';
+      console.log('[TTS] ✅ Engine: Native Android TTS');
+      return;
+    }
 
-    // Engine 2 — Web Speech API (offline if Arabic TTS installed)
-    if (await _speakWebSpeech(text))  { _activeEngine = 'WebSpeechAPI';       return; }
+    // ENGINE 2: Web Speech API
+    if (await _speakWebSpeech(t)) {
+      _activeEngine = 'WebSpeechAPI';
+      console.log('[TTS] ✅ Engine: Web Speech API');
+      return;
+    }
 
-    // Engine 3 — SILMA TTS via HuggingFace (online, best OSS)
-    if (await _speakSilmaTTS(text))   { _activeEngine = 'SilmaTTS_HF';        return; }
+    // ENGINE 3: VoiceRSS (if key provided)
+    if (await _speakVoiceRSS(t)) {
+      _activeEngine = 'VoiceRSS';
+      console.log('[TTS] ✅ Engine: VoiceRSS');
+      return;
+    }
 
-    // Engine 4 — SpeechT5 Arabic via HuggingFace (online fallback)
-    if (await _speakSpeechT5(text))   { _activeEngine = 'SpeechT5_HF';        return; }
-
-    console.error('[NassTecTTS] All engines failed.');
+    console.error('[TTS] ❌ All engines failed. Run NassTecTTS.diagnose() for details.');
     _activeEngine = 'none';
   }
 
   function stop() {
+    try { _getCapPlugin()?.stop(); }                              catch (_) {}
+    try { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); } catch (_) {}
     try { if (_currentAudio) { _currentAudio.pause(); _currentAudio = null; } } catch (_) {}
-    try { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }  catch (_) {}
+  }
+
+  function setVoiceRSSKey(key) {
+    _voiceRSSKey = key;
+    console.log('[TTS] VoiceRSS key set. Engine 3 enabled.');
   }
 
   function getInfo() {
+    const plugin = _getCapPlugin();
     return {
-      activeEngine: _activeEngine,
-      webSpeechAvailable: 'speechSynthesis' in window,
-      arabicVoicesOnDevice: ('speechSynthesis' in window)
+      activeEngine:          _activeEngine,
+      nativePluginAvailable: !!plugin,
+      webSpeechAvailable:    'speechSynthesis' in window,
+      voiceRSSKeySet:        !!_voiceRSSKey,
+      arabicVoicesOnDevice:  ('speechSynthesis' in window)
         ? window.speechSynthesis.getVoices()
             .filter(v => /^ar/i.test(v.lang))
             .map(v => `${v.name} (${v.lang})`)
@@ -230,18 +226,35 @@ const NassTecTTS = (() => {
     };
   }
 
-  async function test() {
-    await speak('مرحباً، هذا اختبار صوتي لتطبيق نص تك');
-    console.log('[NassTecTTS] Engine used:', _activeEngine);
+  async function diagnose() {
+    console.log('═══ NassTecTTS Diagnostics ═══');
+    const info = getInfo();
+    console.log('Native plugin:   ', info.nativePluginAvailable ? '✅ Found' : '❌ NOT FOUND — did you run npm install + cap sync?');
+    console.log('WebSpeech API:   ', info.webSpeechAvailable    ? '✅ Available' : '❌ Not available');
+    console.log('VoiceRSS key:    ', info.voiceRSSKeySet         ? '✅ Set'       : '⚠️  Not set (optional)');
+    console.log('Arabic voices:   ', info.arabicVoicesOnDevice.length > 0
+      ? info.arabicVoicesOnDevice.join(', ')
+      : 'None found on device');
+
+    if (!info.nativePluginAvailable) {
+      console.warn('FIX: Add @capacitor-community/text-to-speech to package.json dependencies and rebuild APK');
+    }
+
+    // Try a real test
+    console.log('Running test speak...');
+    await speak('اختبار');
+    console.log('Active engine after test:', _activeEngine);
+    console.log('══════════════════════════');
+    return info;
   }
 
-  // Warm up voice list on load
+  // Warm up voice list
   if ('speechSynthesis' in window) {
     window.addEventListener('load', () => {
       window.speechSynthesis.getVoices();
-      _resolveWSVoice();
+      _resolveVoice();
     });
   }
 
-  return { speak, stop, getInfo, test };
+  return { speak, stop, setVoiceRSSKey, getInfo, diagnose };
 })();
